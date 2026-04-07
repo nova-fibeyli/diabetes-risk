@@ -1,0 +1,2 @@
+"""Diabetes risk backend application."""
+

@@ -1,0 +1,73 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: diabetes-risk-db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-diabetes_risk}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-diabetes_risk}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+    container_name: diabetes-risk-backend
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://postgres:postgres@db:5432/diabetes_risk}
+      BACKEND_BASE_URL: ${BACKEND_BASE_URL:-http://127.0.0.1:8005}
+      FRONTEND_URL: ${FRONTEND_URL:-http://127.0.0.1:3000}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-me-jwt-secret}
+      SESSION_SECRET_KEY: ${SESSION_SECRET_KEY:-change-me-session-secret}
+      MODEL_DATA_URL: ${MODEL_DATA_URL:-https://raw.githubusercontent.com/npradaschnor/Pima-Indians-Diabetes-Dataset/master/diabetes.csv}
+      MODEL_TARGET_COLUMN: ${MODEL_TARGET_COLUMN:-Outcome}
+      MODEL_NAME: ${MODEL_NAME:-LogisticRegression}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "${BACKEND_PORT:-8005}:8000"
+    volumes:
+      - backend_models:/app/models
+      - backend_data:/app/data
+      - backend_uploads:/app/uploads
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
+    container_name: diabetes-risk-frontend
+    depends_on:
+      - backend
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: diabetes-risk-cloudflared
+    depends_on:
+      - frontend
+    profiles:
+      - tunnel
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+
+volumes:
+  postgres_data:
+  backend_models:
+  backend_data:
+  backend_uploads:
